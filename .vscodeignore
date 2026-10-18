@@ -1,0 +1,9 @@
+**
+!dist/extension.js
+!media/chime.wav
+!media/knock.wav
+!media/icon.png
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE

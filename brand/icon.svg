@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B2640"/>
+      <stop offset="1" stop-color="#1A1726"/>
+    </linearGradient>
+    <linearGradient id="bell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD27A"/>
+      <stop offset="1" stop-color="#F5A524"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <!-- Bell -->
+  <path d="M128 52c-8 0-14 6-14 14v4c-24 6-38 27-38 52v28l-14 18v8h132v-8l-14-18v-28c0-25-14-46-38-52v-4c0-8-6-14-14-14z" fill="url(#bell)"/>
+  <path d="M110 184h36a18 18 0 0 1-36 0z" fill="#F5A524"/>
+  <!-- Terminal prompt on the bell -->
+  <path d="M106 112l18 14-18 14" fill="none" stroke="#2B2640" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M132 142h22" fill="none" stroke="#2B2640" stroke-width="9" stroke-linecap="round"/>
+  <!-- Sound waves -->
+  <path d="M196 92a52 52 0 0 1 0 64" fill="none" stroke="#8FD3FF" stroke-width="9" stroke-linecap="round"/>
+  <path d="M60 92a52 52 0 0 0 0 64" fill="none" stroke="#8FD3FF" stroke-width="9" stroke-linecap="round"/>
+  <path d="M214 74a80 80 0 0 1 0 100" fill="none" stroke="#8FD3FF" stroke-opacity="0.55" stroke-width="8" stroke-linecap="round"/>
+  <path d="M42 74a80 80 0 0 0 0 100" fill="none" stroke="#8FD3FF" stroke-opacity="0.55" stroke-width="8" stroke-linecap="round"/>
+</svg>

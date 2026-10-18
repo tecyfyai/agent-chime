@@ -1,0 +1,134 @@
+{
+  "name": "agent-chime",
+  "displayName": "Agent Chime",
+  "description": "Plays a sound when Claude Code or Codex finishes in your terminal, and a different one when it needs your approval.",
+  "version": "0.1.0",
+  "publisher": "hamperpick",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hamperpick/agent-chime.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "keywords": [
+    "claude code",
+    "codex",
+    "notification",
+    "sound",
+    "terminal",
+    "agent",
+    "ai"
+  ],
+  "galleryBanner": {
+    "color": "#1E1B2E",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentChime.connect",
+        "title": "Connect Claude Code and Codex",
+        "category": "Agent Chime"
+      },
+      {
+        "command": "agentChime.disconnect",
+        "title": "Disconnect Claude Code and Codex",
+        "category": "Agent Chime"
+      },
+      {
+        "command": "agentChime.testSounds",
+        "title": "Play Test Sounds",
+        "category": "Agent Chime"
+      },
+      {
+        "command": "agentChime.showAgents",
+        "title": "Show Agent Terminals",
+        "category": "Agent Chime"
+      },
+      {
+        "command": "agentChime.toggleMute",
+        "title": "Mute or Unmute",
+        "category": "Agent Chime"
+      }
+    ],
+    "configuration": {
+      "title": "Agent Chime",
+      "properties": {
+        "agentChime.doneSound": {
+          "type": "string",
+          "default": "chime",
+          "markdownDescription": "Sound when an agent finishes: `chime`, `none`, or the full path to a `.wav`, `.mp3` or `.aiff` file."
+        },
+        "agentChime.needsInputSound": {
+          "type": "string",
+          "default": "knock",
+          "markdownDescription": "Sound when an agent is waiting for your approval or an answer: `knock`, `chime`, `none`, or the full path to a sound file."
+        },
+        "agentChime.volume": {
+          "type": "number",
+          "default": 70,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Volume of the sounds, from 0 to 100."
+        },
+        "agentChime.whenFocused": {
+          "type": "string",
+          "enum": [
+            "otherTerminal",
+            "always",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Stay quiet only when you are already looking at that agent's terminal.",
+            "Always play, even while you are looking at the terminal.",
+            "Only play while this VS Code window is in the background."
+          ],
+          "default": "otherTerminal",
+          "description": "Whether to play a sound while this VS Code window is in front."
+        },
+        "agentChime.showNotification": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also show a notification with a button that opens the agent's terminal."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:vscode": "npm run build && node scripts/build.mjs --tests && vscode-test",
+    "sounds": "node scripts/make-sounds.mjs",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "npm run build -- --production"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^12.0.3",
+    "ovsx": "^1.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  }
+}
