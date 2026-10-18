@@ -4,11 +4,14 @@ import type { AgentNotice } from './events';
 import { installHookScript } from './hookScript';
 import { Listener } from './listener';
 import { ancestors, listProcesses } from './processTree';
+import { countAlert, RATING_URL } from './rating';
 import { playSound, soundFile } from './sounds';
 import { AgentTerminals, describeState, ICONS } from './terminals';
 
 const MUTED_KEY = 'agentChime.muted';
 const ASKED_KEY = 'agentChime.askedToConnect';
+const ALERTS_KEY = 'agentChime.alertCount';
+const RATING_KEY = 'agentChime.askedToRate';
 /** The same report from the same terminal within this time makes no second sound. */
 const REPEAT_WINDOW_MS = 2_000;
 
@@ -120,6 +123,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
       play(notice.state === 'needs-input' ? needsInputSound : doneSound).catch((error: unknown) =>
         console.error('[agent-chime] could not play sound', error),
       );
+      void askForRating(context, notice.state);
     }
     handled.fire({ notice, terminal, alerted: alert && !muted });
   }
@@ -243,6 +247,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
   }
 
   return { onDidHandleNotice: handled.event };
+}
+
+/** Counts the alerts, and after enough of them asks once for a rating. */
+async function askForRating(context: vscode.ExtensionContext, state: ChimeEvent): Promise<void> {
+  const { count, ask } = countAlert(
+    context.globalState.get<number>(ALERTS_KEY, 0),
+    context.globalState.get<boolean>(RATING_KEY, false),
+    state,
+  );
+  await context.globalState.update(ALERTS_KEY, count);
+  if (!ask) return;
+  await context.globalState.update(RATING_KEY, true);
+  const choice = await vscode.window.showInformationMessage(
+    'Enjoying Agent Chime? A rating on the Marketplace helps other developers find it.',
+    'Rate',
+    'No Thanks',
+  );
+  if (choice === 'Rate') await vscode.env.openExternal(vscode.Uri.parse(RATING_URL));
 }
 
 /** Asks once, on the first start, whether to connect the agents found on this computer. */

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- After 20 sounds, asks once whether you would rate Agent Chime on the Marketplace. It never asks again.
+
 ## 0.1.3
 
 - Clearer listing name, description and tags. No change to how the extension works.
