@@ -51,12 +51,17 @@ If `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, Agent Chime uses those folders.
 - **macOS and Linux.** On Windows, use VS Code with WSL. On Linux, one of `pw-play`, `paplay` or `aplay` plays the sound, and `curl` must be installed.
 - **Local terminals.** An agent inside `tmux` or `screen`, or in a Remote SSH or container window, isn't matched to its terminal yet, so it stays silent.
 - **Codex** needs a version with hooks (spring 2026 or later).
-- **Cursor, Windsurf and VSCodium** can install it from Open VSX.
 
 ## Troubleshooting
 
 - **No sound at all**: run **Agent Chime: Play Test Sounds**. If that is silent, check `agentChime.volume` and your system volume.
 - **Test sounds play but agents are silent**: check that the agent was started after you connected, inside a VS Code terminal, and for Codex that you approved the hooks in `/hooks`.
+
+## Help and privacy
+
+- Questions or problems: [contact@hamperpick.in](mailto:contact@hamperpick.in)
+- Website: [hamperpick.in/tools/agent-chime](https://hamperpick.in/tools/agent-chime)
+- Privacy: [what Agent Chime keeps and where](https://hamperpick.in/tools/agent-chime/privacy)
 
 ## Licence
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Listing: help, website and privacy links. No change to how the extension works.
+
 ## 0.1.1
 
 - Marketplace listing details only; no change to how the extension works.
