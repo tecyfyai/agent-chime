@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Marketplace listing details only; no change to how the extension works.
+
 ## 0.1.0
 
 - First release: sounds when Claude Code or Codex finishes or needs your approval, matched to the VS Code terminal the agent runs in.

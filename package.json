@@ -2,14 +2,10 @@
   "name": "agent-chime",
   "displayName": "Agent Chime",
   "description": "Plays a sound when Claude Code or Codex finishes in your terminal, and a different one when it needs your approval.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "hamperpick",
   "license": "MIT",
   "icon": "media/icon.png",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/hamperpick/agent-chime.git"
-  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -112,7 +108,7 @@
     "test": "vitest run",
     "test:vscode": "npm run build && node scripts/build.mjs --tests && vscode-test",
     "sounds": "node scripts/make-sounds.mjs",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package --no-dependencies --allow-missing-repository",
     "vscode:prepublish": "npm run build -- --production"
   },
   "dependencies": {
