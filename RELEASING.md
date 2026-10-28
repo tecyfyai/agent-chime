@@ -2,6 +2,20 @@
 
 Agent Chime is published to the VS Code Marketplace and to Open VSX (for Cursor, Windsurf and VSCodium).
 
+## Git account
+
+The repository lives at https://github.com/tecyfyai/agent-chime. Commits and pushes use the `tecyfyai` GitHub account only, over HTTPS. No other account is used, and the repository is never pushed over SSH. The clone is set up like this:
+
+```bash
+git remote set-url origin https://github.com/tecyfyai/agent-chime.git
+git config --local user.name tecyfyai
+git config --local user.email 344147863+tecyfyai@users.noreply.github.com
+git config --local credential.https://github.com.helper ''
+git config --local --add credential.https://github.com.helper '!f() { echo username=tecyfyai; echo password=$(gh auth token --user tecyfyai); }; f'
+```
+
+Before each push, check that `git config user.name` prints `tecyfyai` and that `git ls-remote origin HEAD` succeeds.
+
 ## Once
 
 1. Marketplace: sign in at https://marketplace.visualstudio.com/manage with a Microsoft account and create the publisher `hamperpick`. Then create a personal access token in Azure DevOps (https://dev.azure.com, User settings, Personal access tokens) with **Organization: All accessible organizations** and the scope **Marketplace: Manage**.

@@ -27,3 +27,12 @@ export function codexHooksPath(): string {
   const dir = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
   return path.join(dir, 'hooks.json');
 }
+
+/** Antigravity CLI, which replaced Gemini CLI, reads personal hooks from here. */
+export function antigravityHooksPath(): string {
+  return path.join(os.homedir(), '.gemini', 'config', 'hooks.json');
+}
+
+export function cursorHooksPath(): string {
+  return path.join(os.homedir(), '.cursor', 'hooks.json');
+}

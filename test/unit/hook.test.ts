@@ -72,6 +72,29 @@ describe('the hook script and the listener together', () => {
     expect(await runHook(script, ['codex', 'done'], '{}', env)).toEqual({ code: 0, stdout: '' });
   });
 
+  it('answers Antigravity CLI and Cursor with JSON that lets them carry on, even with no window open', async () => {
+    const script = installHookScript();
+    for (const dir of [true, false]) {
+      if (!dir) fs.rmSync(path.join(home, 'windows'), { recursive: true, force: true });
+      expect(await runHook(script, ['antigravity', 'working'], '{}', env)).toEqual({ code: 0, stdout: '{}' });
+      expect(await runHook(script, ['antigravity', 'done'], '{}', env)).toEqual({ code: 0, stdout: '{"decision":"stop"}' });
+      expect(await runHook(script, ['cursor', 'working'], '{}', env)).toEqual({ code: 0, stdout: '{"continue":true}' });
+      expect(await runHook(script, ['cursor', 'done'], '{}', env)).toEqual({ code: 0, stdout: '{}' });
+    }
+  });
+
+  it('passes on only the first Antigravity model call of a prompt', async () => {
+    const script = installHookScript();
+    const received: AgentNotice[] = [];
+    await startListener(async (notice) => {
+      received.push(notice);
+    });
+    await runHook(script, ['antigravity', 'working'], '{"conversationId":"a1","invocationNum":3,"initialNumSteps":5}', env);
+    expect(received).toHaveLength(0);
+    await runHook(script, ['antigravity', 'working'], '{"conversationId":"a1","initialNumSteps":1,"invocationNum":0,"modelName":"m"}', env);
+    expect(received.map((notice) => notice.state)).toEqual(['working']);
+  });
+
   it('skips windows that have closed and refuses reports without the token', async () => {
     const script = installHookScript();
     const received: AgentNotice[] = [];

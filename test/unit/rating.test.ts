@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countAlert, RATE_AFTER } from '../../src/rating';
+import { countAlert, RATE_AFTER, ratingUrl } from '../../src/rating';
 
 describe('countAlert', () => {
   it('counts each alert and waits until there have been enough', () => {
@@ -16,5 +16,16 @@ describe('countAlert', () => {
 
   it('never asks again once it has asked', () => {
     expect(countAlert(RATE_AFTER, true, 'done')).toEqual({ count: RATE_AFTER, ask: false });
+  });
+});
+
+describe('ratingUrl', () => {
+  it('sends VS Code to the Marketplace', () => {
+    expect(ratingUrl('vscode')).toContain('marketplace.visualstudio.com');
+    expect(ratingUrl('vscode-insiders')).toContain('marketplace.visualstudio.com');
+  });
+
+  it('sends Cursor, Windsurf and VSCodium to Open VSX', () => {
+    for (const scheme of ['cursor', 'windsurf', 'vscodium']) expect(ratingUrl(scheme)).toContain('open-vsx.org');
   });
 });

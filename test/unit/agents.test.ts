@@ -165,3 +165,40 @@ describe('connect and disconnect', () => {
     expect(fs.readdirSync(path.dirname(file)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 });
+
+describe('Antigravity CLI and Cursor', () => {
+  it('adds Antigravity CLI hooks under their own name, next to the others', () => {
+    const before = '{\n  "lint": { "enabled": true, "Stop": [{ "type": "command", "command": "./lint.sh" }] }\n}\n';
+    const connected = addChimeHooks(before, 'antigravity', SCRIPT);
+    const result = JSON.parse(connected);
+    expect(result.lint).toEqual({ enabled: true, Stop: [{ type: 'command', command: './lint.sh' }] });
+    expect(result['agent-chime']).toEqual({
+      enabled: true,
+      PreInvocation: [{ type: 'command', command: `sh '${SCRIPT}' antigravity working`, timeout: 10 }],
+      Stop: [{ type: 'command', command: `sh '${SCRIPT}' antigravity done`, timeout: 10 }],
+    });
+    expect(hasChimeHooks(connected)).toBe(true);
+    expect(addChimeHooks(connected, 'antigravity', SCRIPT)).toBe(connected);
+    expect(JSON.parse(removeChimeHooks(connected))).toEqual(JSON.parse(before));
+    expect(hasChimeHooks(before)).toBe(false);
+  });
+
+  it('adds Cursor hooks as flat entries, with the version Cursor needs', () => {
+    const result = JSON.parse(addChimeHooks('', 'cursor', SCRIPT));
+    expect(result).toEqual({
+      version: 1,
+      hooks: {
+        beforeSubmitPrompt: [{ command: `sh '${SCRIPT}' cursor working`, timeout: 10 }],
+        stop: [{ command: `sh '${SCRIPT}' cursor done`, timeout: 10 }],
+      },
+    });
+  });
+
+  it('keeps Cursor hooks that are not its own, and the version, when disconnecting', () => {
+    const before = '{\n  "version": 1,\n  "hooks": {\n    "stop": [{ "command": "./hooks/audit.sh" }]\n  }\n}\n';
+    const connected = addChimeHooks(before, 'cursor', SCRIPT);
+    expect(hasChimeHooks(connected)).toBe(true);
+    expect(JSON.parse(connected).hooks.stop).toHaveLength(2);
+    expect(JSON.parse(removeChimeHooks(connected))).toEqual(JSON.parse(before));
+  });
+});

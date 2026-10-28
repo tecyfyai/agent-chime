@@ -83,6 +83,54 @@ suite('Agent Chime in VS Code', () => {
     assert.equal(handled.alerted, false);
   });
 
+  test('matches Antigravity CLI to its terminal too', async () => {
+    const terminal = await openTerminal('agy');
+    const report = nextNotice((handled) => handled.notice.agent === 'antigravity');
+    runHook(terminal, 'antigravity', 'done', { conversationId: 'a1', error: '', fullyIdle: true, terminationReason: 'NO_TOOL_CALL' });
+    const handled = await report;
+    assert.equal(handled.terminal, terminal);
+    assert.equal(handled.notice.state, 'done');
+  });
+
+  test('says how long a run took, and skips short runs when asked to', async () => {
+    const config = vscode.workspace.getConfiguration('agentChime');
+    await config.update('whenFocused', 'always', vscode.ConfigurationTarget.Workspace);
+    try {
+      const terminal = await openTerminal('timed');
+      const run = async (finish: string, json: object = {}) => {
+        const started = nextNotice((handled) => handled.terminal === terminal && handled.notice.state === 'working');
+        runHook(terminal, 'claude', 'working', {});
+        await started;
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        const ended = nextNotice((handled) => handled.terminal === terminal && handled.notice.state === finish);
+        runHook(terminal, 'claude', finish, json);
+        return ended;
+      };
+
+      const long = await run('done');
+      assert.ok(long.tookMs !== undefined && long.tookMs >= 1_000, `took ${long.tookMs} ms`);
+      assert.equal(long.alerted, true);
+
+      await config.update('minWorkingSeconds', 60, vscode.ConfigurationTarget.Workspace);
+      const short = await run('done');
+      assert.equal(short.alerted, false, 'a short run makes no sound');
+      const failed = await run('failed', { error: 'boom' });
+      assert.equal(failed.alerted, true, 'an error always does');
+    } finally {
+      await config.update('minWorkingSeconds', undefined, vscode.ConfigurationTarget.Workspace);
+      await config.update('whenFocused', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+  });
+
+  test('switches alerting while you watch on and off', async () => {
+    const value = () => vscode.workspace.getConfiguration('agentChime').get<string>('whenFocused');
+    assert.equal(value(), 'otherTerminal');
+    await vscode.commands.executeCommand('agentChime.toggleWhileWatching');
+    assert.equal(value(), 'always');
+    await vscode.commands.executeCommand('agentChime.toggleWhileWatching');
+    assert.equal(value(), 'otherTerminal');
+  });
+
   test('ignores agents running outside this window', async () => {
     const outside = nextNotice((handled) => handled.notice.detail === 'elsewhere');
     // Run the script from the extension host, which is not inside any terminal.

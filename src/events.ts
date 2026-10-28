@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { AGENTS, type AgentId, type ChimeEvent } from './agents';
 
 /** One report from the hook script, read from its query string and the agent's hook JSON. */
@@ -9,6 +10,10 @@ export interface AgentNotice {
   sessionId?: string;
   /** A short line about what happened, such as the start of the agent's last message. */
   detail?: string;
+  /** You stopped the agent yourself (Cursor reports this), so there's nothing to tell you. */
+  stoppedByYou?: boolean;
+  /** The folders open where the agent runs (Cursor's own agent, which has no terminal). */
+  workspaceRoots?: string[];
 }
 
 const STATES: readonly ChimeEvent[] = ['working', 'done', 'failed', 'needs-input'];
@@ -42,7 +47,7 @@ function detailFor(state: ChimeEvent, payload: Record<string, unknown>): string 
     case 'done':
       return summarize(text(payload.last_assistant_message));
     case 'failed':
-      return summarize(text(payload.error) ?? text(payload.message));
+      return summarize(text(payload.error) ?? text(payload.message) ?? text(payload.terminationReason));
     case 'needs-input': {
       const toolInput = payload.tool_input as Record<string, unknown> | undefined;
       const fromTool =
@@ -68,5 +73,31 @@ export function readNotice(query: URLSearchParams, body: string): AgentNotice | 
     // A report without readable JSON still says which agent and what happened.
   }
 
-  return { agent, state, pid, sessionId: text(payload.session_id), detail: detailFor(state, payload) };
+  // Cursor and Antigravity report every stop through one hook and say in it how the run ended.
+  const status = text(payload.status);
+  const failed =
+    (agent === 'cursor' && status === 'error') ||
+    (agent === 'antigravity' && (text(payload.error) !== undefined || /error/i.test(text(payload.terminationReason) ?? '')));
+  const event: ChimeEvent = state === 'done' && failed ? 'failed' : state;
+  const roots = Array.isArray(payload.workspace_roots)
+    ? payload.workspace_roots.filter((root): root is string => typeof root === 'string')
+    : undefined;
+
+  return {
+    agent,
+    state: event,
+    pid,
+    sessionId: text(payload.session_id) ?? text(payload.conversation_id) ?? text(payload.conversationId),
+    detail: detailFor(event, payload),
+    ...(agent === 'cursor' && status === 'aborted' ? { stoppedByYou: true } : {}),
+    ...(roots ? { workspaceRoots: roots } : {}),
+  };
+}
+
+/** Whether the folders Cursor's agent reported are the ones open in this window. */
+export function sameFolders(roots: string[], open: string[]): boolean {
+  const normal = (list: string[]) => [...new Set(list.map((dir) => path.resolve(dir).replace(/[\\/]+$/, '')))].sort();
+  const a = normal(roots);
+  const b = normal(open);
+  return a.length === b.length && a.every((dir, i) => dir === b[i]);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readNotice, summarize } from '../../src/events';
+import { readNotice, sameFolders, summarize } from '../../src/events';
 
 const query = (agent: string, event: string, pid = '4242') => new URLSearchParams({ agent, event, pid });
 
@@ -39,7 +39,7 @@ describe('readNotice', () => {
   });
 
   it('ignores reports it does not understand', () => {
-    expect(readNotice(query('gemini', 'done'), '')).toBeUndefined();
+    expect(readNotice(query('aider', 'done'), '')).toBeUndefined();
     expect(readNotice(query('claude', 'exploded'), '')).toBeUndefined();
     expect(readNotice(query('claude', 'done', 'abc'), '')).toBeUndefined();
     expect(readNotice(query('claude', 'done', '1'), '')).toBeUndefined();
@@ -56,5 +56,32 @@ describe('summarize', () => {
     expect(short.endsWith('…')).toBe(true);
     expect(summarize('   \n  ')).toBeUndefined();
     expect(summarize(undefined)).toBeUndefined();
+  });
+});
+
+describe('Antigravity CLI and Cursor reports', () => {
+  it('reads how an Antigravity CLI run ended', () => {
+    // As Antigravity CLI 1.4.2 sends it.
+    const done = JSON.stringify({ conversationId: 'a1', error: '', executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' });
+    expect(readNotice(query('antigravity', 'done'), done)).toMatchObject({ agent: 'antigravity', state: 'done', sessionId: 'a1', detail: undefined });
+    const crashed = JSON.stringify({ conversationId: 'a1', error: 'quota exceeded', terminationReason: 'error' });
+    expect(readNotice(query('antigravity', 'done'), crashed)).toMatchObject({ state: 'failed', detail: 'quota exceeded' });
+  });
+
+  it('reads how a Cursor run ended and where it ran', () => {
+    const done = JSON.stringify({ conversation_id: 'c1', status: 'completed', workspace_roots: ['/work/app'] });
+    expect(readNotice(query('cursor', 'done'), done)).toMatchObject({ state: 'done', sessionId: 'c1', workspaceRoots: ['/work/app'] });
+    expect(readNotice(query('cursor', 'done'), done)?.stoppedByYou).toBeUndefined();
+    expect(readNotice(query('cursor', 'done'), JSON.stringify({ status: 'error' }))?.state).toBe('failed');
+    expect(readNotice(query('cursor', 'done'), JSON.stringify({ status: 'aborted' }))?.stoppedByYou).toBe(true);
+  });
+});
+
+describe('sameFolders', () => {
+  it('compares folder lists in any order, ignoring a trailing slash', () => {
+    expect(sameFolders(['/work/app/', '/work/lib'], ['/work/lib', '/work/app'])).toBe(true);
+    expect(sameFolders(['/work/app'], ['/work/app', '/work/lib'])).toBe(false);
+    expect(sameFolders(['/work/app'], ['/work/other'])).toBe(false);
+    expect(sameFolders([], [])).toBe(true);
   });
 });

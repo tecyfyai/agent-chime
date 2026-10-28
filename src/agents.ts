@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { applyEdits, modify, parse, printParseErrorCode, type FormattingOptions, type ParseError } from 'jsonc-parser';
-import { claudeSettingsPath, codexHooksPath } from './paths';
+import { claudeSettingsPath, codexHooksPath, antigravityHooksPath, cursorHooksPath } from './paths';
 
-export type AgentId = 'claude' | 'codex';
+export type AgentId = 'claude' | 'codex' | 'antigravity' | 'cursor';
 
 /** What the hook script reports to the window; see events.ts. */
 export type ChimeEvent = 'working' | 'done' | 'failed' | 'needs-input';
@@ -23,6 +23,14 @@ export interface AgentInfo {
   hooks: HookSpec[];
   /** Extra fields for each hook entry. */
   hookOptions: Record<string, unknown>;
+  /**
+   * How the file holds hooks. `groups` (Claude Code, Codex): `hooks.<event>` lists `{ matcher, hooks: [{ command }] }`.
+   * `flat` (Cursor): `hooks.<event>` lists `{ command }`. `named` (Antigravity CLI): each top-level key names a set
+   * of hooks, `{ enabled, <event>: [{ command }] }`, so Agent Chime keeps all of its own under one name.
+   */
+  layout?: 'groups' | 'flat' | 'named';
+  /** Top-level fields the file must have, added when missing. */
+  required?: Record<string, unknown>;
 }
 
 export const AGENTS: Record<AgentId, AgentInfo> = {
@@ -54,6 +62,32 @@ export const AGENTS: Record<AgentId, AgentInfo> = {
     ],
     hookOptions: { timeout: 10 },
   },
+  antigravity: {
+    id: 'antigravity',
+    name: 'Antigravity CLI',
+    configFile: antigravityHooksPath,
+    // PreInvocation fires before every model call; the hook script passes on only the first of each prompt.
+    // Antigravity has no hook for "waiting for your approval".
+    hooks: [
+      { event: 'PreInvocation', chimeEvent: 'working' },
+      { event: 'Stop', chimeEvent: 'done' },
+    ],
+    hookOptions: { timeout: 10 },
+    layout: 'named',
+  },
+  cursor: {
+    id: 'cursor',
+    name: 'Cursor Agent',
+    configFile: cursorHooksPath,
+    // Cursor has no hook for "waiting for your approval", so its agent only reports starting and stopping.
+    hooks: [
+      { event: 'beforeSubmitPrompt', chimeEvent: 'working' },
+      { event: 'stop', chimeEvent: 'done' },
+    ],
+    hookOptions: { timeout: 10 },
+    layout: 'flat',
+    required: { version: 1 },
+  },
 };
 
 /** Every command Agent Chime writes runs hook.sh from a folder named .agent-chime. */
@@ -77,6 +111,8 @@ interface HookEntry {
 
 interface HookGroup {
   matcher?: string;
+  /** Set when the group is itself a hook, as in Cursor's hooks.json. */
+  command?: unknown;
   hooks?: HookEntry[];
   [key: string]: unknown;
 }
@@ -121,6 +157,7 @@ function formattingFor(text: string): FormattingOptions {
 function withoutChimeGroups(groups: HookGroup[]): HookGroup[] {
   const kept: HookGroup[] = [];
   for (const group of groups) {
+    if (isChimeCommand(group.command)) continue;
     const entries = Array.isArray(group.hooks) ? group.hooks : [];
     const others = entries.filter((entry) => !isChimeCommand(entry.command));
     if (others.length === entries.length) {
@@ -137,10 +174,17 @@ function setEvent(text: string, event: string, groups: HookGroup[] | undefined):
   return applyEdits(text, edits);
 }
 
+/** The name Agent Chime's hooks go under in Antigravity CLI's hooks.json. */
+export const HOOK_SET_NAME = 'agent-chime';
+
 /** Removes every Agent Chime hook from a settings file's text. Other hooks are left as they were. */
 export function removeChimeHooks(text: string, file = 'the settings file'): string {
-  const hooks = readHooks(parseConfig(text, file), file);
+  const config = parseConfig(text, file);
   let result = text.trim() === '' ? '{}' : text;
+  if (config[HOOK_SET_NAME] !== undefined) {
+    result = applyEdits(result, modify(result, [HOOK_SET_NAME], undefined, { formattingOptions: formattingFor(result) }));
+  }
+  const hooks = readHooks(config, file);
   for (const [event, groups] of Object.entries(hooks)) {
     if (!Array.isArray(groups)) continue;
     const kept = withoutChimeGroups(groups);
@@ -159,13 +203,31 @@ export function removeChimeHooks(text: string, file = 'the settings file'): stri
 export function addChimeHooks(text: string, agent: AgentId, scriptPath: string, file = 'the settings file'): string {
   const info = AGENTS[agent];
   let result = removeChimeHooks(text, file);
+  for (const [key, value] of Object.entries(info.required ?? {})) {
+    if (parseConfig(result, file)[key] === undefined) {
+      result = applyEdits(result, modify(result, [key], value, { formattingOptions: formattingFor(result) }));
+    }
+  }
+  if (info.layout === 'named') {
+    const set: Record<string, unknown> = { enabled: true };
+    for (const spec of info.hooks) {
+      set[spec.event] = [{ type: 'command', command: hookCommand(scriptPath, agent, spec.chimeEvent), ...info.hookOptions }];
+    }
+    result = applyEdits(result, modify(result, [HOOK_SET_NAME], set, { formattingOptions: formattingFor(result) }));
+    return result.endsWith('\n') ? result : `${result}\n`;
+  }
   for (const spec of info.hooks) {
     const existing = readHooks(parseConfig(result, file), file)[spec.event];
     const groups = Array.isArray(existing) ? [...existing] : [];
-    const group: HookGroup = {};
-    if (spec.matcher) group.matcher = spec.matcher;
-    group.hooks = [{ type: 'command', command: hookCommand(scriptPath, agent, spec.chimeEvent), ...info.hookOptions }];
-    groups.push(group);
+    const command = hookCommand(scriptPath, agent, spec.chimeEvent);
+    if (info.layout === 'flat') {
+      groups.push({ command, ...info.hookOptions, ...(spec.matcher ? { matcher: spec.matcher } : {}) });
+    } else {
+      const group: HookGroup = {};
+      if (spec.matcher) group.matcher = spec.matcher;
+      group.hooks = [{ type: 'command', command, ...info.hookOptions }];
+      groups.push(group);
+    }
     result = setEvent(result, spec.event, groups);
   }
   return result.endsWith('\n') ? result : `${result}\n`;
@@ -173,11 +235,17 @@ export function addChimeHooks(text: string, agent: AgentId, scriptPath: string, 
 
 export function hasChimeHooks(text: string): boolean {
   try {
-    const hooks = readHooks(parseConfig(text, ''), '');
+    const config = parseConfig(text, '');
+    if (config[HOOK_SET_NAME] !== undefined) return true;
+    const hooks = readHooks(config, '');
     return Object.values(hooks).some(
       (groups) =>
         Array.isArray(groups) &&
-        groups.some((group) => Array.isArray(group.hooks) && group.hooks.some((entry) => isChimeCommand(entry.command))),
+        groups.some(
+          (group) =>
+            isChimeCommand(group.command) ||
+            (Array.isArray(group.hooks) && group.hooks.some((entry) => isChimeCommand(entry.command))),
+        ),
     );
   } catch {
     return false;

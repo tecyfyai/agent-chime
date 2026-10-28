@@ -1,12 +1,16 @@
 {
   "name": "agent-chime",
-  "displayName": "Agent Chime: Sound Alerts for Claude Code & Codex",
-  "description": "Sound and notification alerts when Claude Code or Codex finishes in your VS Code terminal, and a different sound when it needs your approval.",
-  "version": "0.1.4",
+  "displayName": "Agent Chime: Sound Alerts for Claude Code, Codex, Cursor & Antigravity",
+  "description": "Sound and notification alerts when Claude Code, Codex, Antigravity CLI or the Cursor agent finishes, and a different sound when it needs your approval. Works in VS Code, Cursor and Windsurf.",
+  "version": "0.2.0",
   "publisher": "hamperpick",
   "license": "MIT",
   "icon": "media/icon.png",
   "homepage": "https://hamperpick.in/tools/agent-chime",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tecyfyai/agent-chime.git"
+  },
   "bugs": {
     "email": "contact@hamperpick.in"
   },
@@ -23,6 +27,11 @@
     "anthropic",
     "codex",
     "openai",
+    "antigravity",
+    "antigravity cli",
+    "agy",
+    "gemini",
+    "cursor",
     "ai agent",
     "agent",
     "coding agent",
@@ -61,12 +70,12 @@
     "commands": [
       {
         "command": "agentChime.connect",
-        "title": "Connect Claude Code and Codex",
+        "title": "Connect Agents",
         "category": "Agent Chime"
       },
       {
         "command": "agentChime.disconnect",
-        "title": "Disconnect Claude Code and Codex",
+        "title": "Disconnect Agents",
         "category": "Agent Chime"
       },
       {
@@ -82,6 +91,11 @@
       {
         "command": "agentChime.toggleMute",
         "title": "Mute or Unmute",
+        "category": "Agent Chime"
+      },
+      {
+        "command": "agentChime.toggleWhileWatching",
+        "title": "Alert While Watching: On or Off",
         "category": "Agent Chime"
       }
     ],
@@ -124,6 +138,12 @@
           "type": "boolean",
           "default": true,
           "description": "Also show a notification with a button that opens the agent's terminal."
+        },
+        "agentChime.minWorkingSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Only alert when an agent finishes after working at least this many seconds. `0` alerts every time. Errors and requests for approval always alert."
         }
       }
     }

@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import { AGENTS, ConfigError, connect, disconnect, isConnected, isInstalled, type AgentId, type ChimeEvent } from './agents';
-import type { AgentNotice } from './events';
+import { sameFolders, type AgentNotice } from './events';
 import { installHookScript } from './hookScript';
 import { Listener } from './listener';
 import { ancestors, listProcesses } from './processTree';
-import { countAlert, RATING_URL } from './rating';
+import { countAlert, ratingUrl } from './rating';
 import { playSound, soundFile } from './sounds';
-import { AgentTerminals, describeState, ICONS } from './terminals';
+import { AgentTerminals, describeState, ICONS, type AgentPlace } from './terminals';
+import { formatDuration, runLength } from './timing';
 
 const MUTED_KEY = 'agentChime.muted';
 const ASKED_KEY = 'agentChime.askedToConnect';
@@ -20,6 +21,8 @@ export interface HandledNotice {
   notice: AgentNotice;
   terminal?: vscode.Terminal;
   alerted: boolean;
+  /** How long the run took, when Agent Chime saw it start. */
+  tookMs?: number;
 }
 
 export interface AgentChimeApi {
@@ -50,33 +53,53 @@ function settings() {
     volume: config.get<number>('volume', 70),
     whenFocused: config.get<'otherTerminal' | 'always' | 'never'>('whenFocused', 'otherTerminal'),
     showNotification: config.get<boolean>('showNotification', true),
+    minWorkingSeconds: Math.max(0, config.get<number>('minWorkingSeconds', 0)),
   };
 }
 
-function isLookingAt(terminal: vscode.Terminal): boolean {
-  return vscode.window.state.focused && vscode.window.activeTerminal === terminal;
+/** Whether this editor is Cursor, the only one whose own agent reports to Agent Chime. */
+function isCursor(): boolean {
+  return vscode.env.uriScheme === 'cursor' || /cursor/i.test(vscode.env.appName);
 }
 
-function shouldAlert(terminal: vscode.Terminal): boolean {
+/** The place in this window the report came from: the agent's terminal, or a chat of Cursor's own agent. */
+async function findPlace(notice: AgentNotice): Promise<AgentPlace | undefined> {
+  const terminal = await findTerminal(notice.pid);
+  if (terminal) return { key: terminal, terminal, label: terminal.name };
+  if (notice.agent !== 'cursor' || !isCursor() || !notice.workspaceRoots) return undefined;
+  const open = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+  if (!sameFolders(notice.workspaceRoots, open)) return undefined;
+  return { key: `cursor:${notice.sessionId ?? 'chat'}`, label: 'Cursor chat' };
+}
+
+/** Looking at the agent's terminal, or for a chat, at this window. */
+function isLookingAt(place: AgentPlace): boolean {
+  if (!vscode.window.state.focused) return false;
+  return place.terminal ? vscode.window.activeTerminal === place.terminal : true;
+}
+
+function shouldAlert(place: AgentPlace): boolean {
   switch (settings().whenFocused) {
     case 'always':
       return true;
     case 'never':
       return !vscode.window.state.focused;
     case 'otherTerminal':
-      return !isLookingAt(terminal);
+      return !isLookingAt(place);
   }
 }
 
-function headline(agent: AgentId, state: ChimeEvent, terminal: vscode.Terminal): string {
+export function headline(agent: AgentId, state: ChimeEvent, label: string | undefined, tookMs?: number): string {
   const name = AGENTS[agent].name;
+  const where = label ? ` in "${label}"` : '';
+  const took = tookMs !== undefined && tookMs >= 1000 ? ` after ${formatDuration(tookMs)}` : '';
   switch (state) {
     case 'needs-input':
-      return `${name} is waiting for you in "${terminal.name}"`;
+      return `${name} is waiting for you${where}`;
     case 'failed':
-      return `${name} stopped with an error in "${terminal.name}"`;
+      return `${name} stopped with an error${where}${took}`;
     default:
-      return `${name} finished in "${terminal.name}"`;
+      return `${name} finished${where}${took}`;
   }
 }
 
@@ -85,16 +108,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
   const handled = new vscode.EventEmitter<HandledNotice>();
   const terminals = new AgentTerminals();
   terminals.setMuted(context.globalState.get<boolean>(MUTED_KEY, false));
-  context.subscriptions.push(handled, terminals);
+  // One line per report, for anyone wondering why an agent made no sound.
+  const log = vscode.window.createOutputChannel('Agent Chime', { log: true });
+  context.subscriptions.push(handled, terminals, log);
 
   async function play(setting: string): Promise<void> {
     const file = soundFile(setting, mediaDir);
     if (file) await playSound(file, settings().volume);
   }
 
-  function notify(terminal: vscode.Terminal, agent: AgentId, state: ChimeEvent, detail: string | undefined): void {
-    const message = detail ? `${headline(agent, state, terminal)}: ${detail}` : headline(agent, state, terminal);
-    const show = state === 'needs-input' ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
+  function notify(place: AgentPlace, notice: AgentNotice, tookMs: number | undefined): void {
+    const title = headline(notice.agent, notice.state, place.terminal ? place.label : undefined, tookMs);
+    const message = notice.detail ? `${title}: ${notice.detail}` : title;
+    const show = notice.state === 'needs-input' ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
+    const terminal = place.terminal;
+    if (!terminal) {
+      void show(message);
+      return;
+    }
     void show(message, 'Show Terminal').then((choice) => {
       if (choice) {
         terminal.show();
@@ -105,27 +136,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
 
   async function onNotice(notice: AgentNotice): Promise<void> {
     if (process.platform === 'win32') return;
-    const terminal = await findTerminal(notice.pid);
-    if (!terminal) {
+    const place = await findPlace(notice);
+    const name = `${AGENTS[notice.agent].name} ${notice.state}`;
+    if (!place) {
+      log.info(`${name}: not from this window, ignored`);
       handled.fire({ notice, alerted: false });
       return;
     }
-    const previous = terminals.get(terminal);
+    const { doneSound, needsInputSound, showNotification, minWorkingSeconds } = settings();
+    const previous = terminals.get(place.key);
+    const tookMs = notice.state === 'working' ? undefined : runLength(previous, Date.now());
     const repeat = previous?.state === notice.state && Date.now() - previous.since < REPEAT_WINDOW_MS;
-    const alert = notice.state !== 'working' && !repeat && shouldAlert(terminal);
-    terminals.update(terminal, notice.agent, notice.state, notice.detail, !isLookingAt(terminal));
+    // A quick finish is not worth a sound when you asked for long runs only; errors and questions always are.
+    const quick = notice.state === 'done' && tookMs !== undefined && tookMs < minWorkingSeconds * 1000;
+    const alert = notice.state !== 'working' && !repeat && !quick && !notice.stoppedByYou && shouldAlert(place);
+    terminals.update(place, notice.agent, notice.state, notice.detail, !isLookingAt(place));
 
     const muted = context.globalState.get<boolean>(MUTED_KEY, false);
+    const why = muted
+      ? 'muted'
+      : notice.state === 'working'
+        ? 'started'
+        : repeat
+          ? 'repeat'
+          : quick
+            ? `shorter than ${minWorkingSeconds}s`
+            : notice.stoppedByYou
+              ? 'stopped by you'
+              : alert
+                ? 'alerted'
+                : 'you were watching';
+    const took = tookMs !== undefined ? ` after ${formatDuration(tookMs)}` : '';
+    log.info(`${name} in "${place.label}"${took}: ${why}`);
     if (alert && !muted) {
-      const { doneSound, needsInputSound, showNotification } = settings();
-      if (showNotification) notify(terminal, notice.agent, notice.state, notice.detail);
+      if (showNotification) notify(place, notice, tookMs);
       // Not awaited: the hook script, and with it Codex, would otherwise wait for the sound to end.
       play(notice.state === 'needs-input' ? needsInputSound : doneSound).catch((error: unknown) =>
         console.error('[agent-chime] could not play sound', error),
       );
       void askForRating(context, notice.state);
     }
-    handled.fire({ notice, terminal, alerted: alert && !muted });
+    handled.fire({ notice, terminal: place.terminal, alerted: alert && !muted, tookMs });
   }
 
   async function connectAgents(): Promise<void> {
@@ -160,7 +211,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
     if (done.length === 0) return;
     await context.globalState.update(ASKED_KEY, true);
     void vscode.window.showInformationMessage(
-      `Agent Chime is connected to ${done.join(' and ')}. Sessions that are already running pick it up when restarted.`,
+      `Agent Chime is connected to ${listNames(done)}. Sessions that are already running pick it up when restarted.`,
     );
     if (picks.some((pick) => pick.id === 'codex')) {
       void vscode.window.showInformationMessage(
@@ -179,7 +230,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
       }
     }
     void vscode.window.showInformationMessage(
-      changed.length > 0 ? `Agent Chime's hooks were removed from ${changed.join(' and ')}.` : 'Agent Chime was not connected to any agent.',
+      changed.length > 0 ? `Agent Chime's hooks were removed from ${listNames(changed)}.` : 'Agent Chime was not connected to any agent.',
     );
   }
 
@@ -192,20 +243,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
     type Item = vscode.QuickPickItem & { run?: () => unknown };
     const muted = context.globalState.get<boolean>(MUTED_KEY, false);
     const agentItems: Item[] = terminals.list().map((entry) => ({
-      label: `${ICONS[entry.state]} ${entry.terminal.name}`,
+      label: `${ICONS[entry.state]} ${entry.label}`,
       description: `${AGENTS[entry.agent].name}, ${describeState(entry)}`,
       detail: entry.detail,
       run: () => {
-        entry.terminal.show();
-        terminals.markSeen(entry.terminal);
+        entry.terminal?.show();
+        terminals.markSeen(entry.key);
       },
     }));
+    const watching = settings().whenFocused === 'always';
     const items: Item[] = [
       ...agentItems,
       { label: 'Agent Chime', kind: vscode.QuickPickItemKind.Separator },
       { label: muted ? '$(bell) Unmute' : '$(bell-slash) Mute', run: () => setMuted(!muted) },
+      {
+        label: watching ? '$(eye) Alert while I watch: on' : '$(eye-closed) Alert while I watch: off',
+        description: 'also when the agent\'s terminal is in front',
+        run: toggleWhileWatching,
+      },
       { label: '$(play) Play test sounds', run: testSounds },
-      { label: '$(plug) Connect Claude Code and Codex', run: connectAgents },
+      { label: '$(plug) Connect agents', run: connectAgents },
       { label: '$(gear) Settings', run: () => vscode.commands.executeCommand('workbench.action.openSettings', 'agentChime') },
     ];
     const choice = await vscode.window.showQuickPick(items, {
@@ -214,6 +271,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
       matchOnDescription: true,
     });
     await choice?.run?.();
+  }
+
+  /** Switches between staying quiet for the terminal you look at (the default) and always alerting. */
+  async function toggleWhileWatching(): Promise<void> {
+    const on = settings().whenFocused !== 'always';
+    await vscode.workspace
+      .getConfiguration('agentChime')
+      .update('whenFocused', on ? 'always' : 'otherTerminal', vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(
+      on
+        ? 'Agent Chime now alerts even while you are looking at the agent.'
+        : 'Agent Chime stays quiet while you are looking at the agent.',
+    );
   }
 
   async function testSounds(): Promise<void> {
@@ -232,6 +302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<AgentC
     vscode.commands.registerCommand('agentChime.disconnect', disconnectAgents),
     vscode.commands.registerCommand('agentChime.testSounds', testSounds),
     vscode.commands.registerCommand('agentChime.showAgents', showAgents),
+    vscode.commands.registerCommand('agentChime.toggleWhileWatching', toggleWhileWatching),
     vscode.commands.registerCommand('agentChime.toggleMute', () =>
       setMuted(!context.globalState.get<boolean>(MUTED_KEY, false)),
     ),
@@ -260,11 +331,11 @@ async function askForRating(context: vscode.ExtensionContext, state: ChimeEvent)
   if (!ask) return;
   await context.globalState.update(RATING_KEY, true);
   const choice = await vscode.window.showInformationMessage(
-    'Enjoying Agent Chime? A rating on the Marketplace helps other developers find it.',
+    'Enjoying Agent Chime? A rating helps other developers find it.',
     'Rate',
     'No Thanks',
   );
-  if (choice === 'Rate') await vscode.env.openExternal(vscode.Uri.parse(RATING_URL));
+  if (choice === 'Rate') await vscode.env.openExternal(vscode.Uri.parse(ratingUrl(vscode.env.uriScheme)));
 }
 
 /** Asks once, on the first start, whether to connect the agents found on this computer. */
@@ -274,12 +345,17 @@ async function offerToConnect(context: vscode.ExtensionContext, connectAgents: (
   if (ids.some(isConnected) || !ids.some(isInstalled)) return;
   const found = ids.filter(isInstalled).map((id) => AGENTS[id].name);
   const choice = await vscode.window.showInformationMessage(
-    `Play a sound when ${found.join(' or ')} finishes or needs you? Agent Chime adds a few hooks to their settings; you can remove them any time.`,
+    `Play a sound when ${listNames(found, 'or')} finishes or needs you? Agent Chime adds a few hooks to their settings; you can remove them any time.`,
     'Connect',
     'Not Now',
   );
   await context.globalState.update(ASKED_KEY, true);
   if (choice === 'Connect') await connectAgents();
+}
+
+/** "A", "A and B", "A, B and C". */
+function listNames(names: string[], word = 'and'): string {
+  return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} ${word} ${names[names.length - 1]}`;
 }
 
 export function deactivate(): void {}
