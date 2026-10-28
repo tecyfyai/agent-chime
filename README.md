@@ -71,6 +71,10 @@ If `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, Agent Chime uses those folders.
 - Website: [hamperpick.in/tools/agent-chime](https://hamperpick.in/tools/agent-chime)
 - Privacy: [what Agent Chime keeps and where](https://hamperpick.in/tools/agent-chime/privacy)
 
+## Related
+
+[ReRead](https://marketplace.visualstudio.com/items?itemName=hamperpick.reread) (also on [Open VSX](https://open-vsx.org/extension/hamperpick/reread) and as [`npx reread-cli`](https://www.npmjs.com/package/reread-cli)) shows how much of your Claude Code, Codex and Antigravity usage went to re-reading context and thinking, and counts down until your prompt cache goes cold.
+
 ## Licence
 
 MIT. The sounds were made for this extension and are covered by the same licence.
