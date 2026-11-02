@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      dev-tools:
+        dependency-type: development
+    ignore:
+      # The types match the oldest VS Code the extension supports (engines.vscode in package.json).
+      - dependency-name: "@types/vscode"
+      # Major Node.js types would let the check pass on code the editor's Node.js cannot run.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
